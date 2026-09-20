@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Live Ledger — Multi-Timeframe OHLCV</title>
+<meta name="description" content="Live 3m/15m/1h/4h OHLCV ledger for crypto pairs, sourced from Binance, with addable coins." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F7F7F5;
+    --panel: #FFFFFF;
+    --panel-alt: #F2F2EF;
+    --row-alt: #FAFAF8;
+    --border: #DEDDD6;
+    --border-soft: #E9E8E2;
+    --text: #1C1C1A;
+    --text-muted: #6B6A63;
+    --text-faint: #9B9A92;
+    --gold: #96751A;
+    --gold-dim: #C9A227;
+    --up: #1E8E5C;
+    --down: #C43B32;
+    --error: #C43B32;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { min-height: 100vh; padding-bottom: 60px; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  header {
+    position: sticky; top: 0; z-index: 30;
+    background: rgba(247, 247, 245, 0.95);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+  }
+  .header-inner {
+    max-width: 1180px; margin: 0 auto;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .title-block h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .title-block p { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
+  .header-controls { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--text-muted); }
+  .clock { font-family: 'JetBrains Mono', monospace; color: var(--text); font-size: 13px; white-space: nowrap; }
+  .clock span { color: var(--text-muted); font-size: 11px; }
+
+  button {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+    padding: 7px 12px; font-size: 12.5px; font-family: 'Inter', sans-serif;
+    border-radius: 3px; cursor: pointer; transition: border-color .15s ease, color .15s ease;
+  }
+  button:hover { border-color: var(--gold-dim); color: var(--gold); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: default; }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 18px 20px; }
+
+  /* --- Add coin bar --- */
+  .add-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: 10px 12px; margin-bottom: 18px;
+  }
+  .add-bar label { font-size: 11.5px; color: var(--text-muted); }
+  .add-bar input[type=text] {
+    background: var(--panel-alt); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 9px; font-size: 12.5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace;
+    width: 150px;
+  }
+  .add-bar select {
+    background: var(--panel-alt); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 9px; font-size: 12.5px; border-radius: 3px;
+  }
+  .add-bar input:focus, .add-bar select:focus { outline: 1px solid var(--gold-dim); }
+  .add-bar .add-error { font-size: 11.5px; color: var(--error); min-width: 160px; }
+  .add-bar .add-hint { font-size: 11px; color: var(--text-faint); width: 100%; }
+
+  /* --- Instrument panels --- */
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border-soft);
+    flex-wrap: wrap; gap: 8px;
+  }
+  .panel-id { display: flex; align-items: baseline; gap: 8px; }
+  .panel-id .name { font-weight: 600; font-size: 14px; }
+  .panel-id .symbol { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-muted); }
+  .panel-id .market-tag {
+    font-size: 10px; color: var(--gold); border: 1px solid var(--gold-dim);
+    border-radius: 2px; padding: 1px 5px; text-transform: lowercase;
+  }
+
+  .tabs { display: flex; gap: 4px; }
+  .tab-btn {
+    padding: 5px 10px; font-size: 12px; border: 1px solid var(--border);
+    background: var(--panel-alt); color: var(--text-muted); border-radius: 3px; cursor: pointer;
+  }
+  .tab-btn.active { color: var(--gold); border-color: var(--gold-dim); }
+
+  .panel-actions { display: flex; align-items: center; gap: 8px; }
+  .remove-btn { color: var(--text-faint); border-color: var(--border); padding: 5px 9px; font-size: 11.5px; }
+  .remove-btn:hover { color: var(--down); border-color: var(--down); }
+
+  .panel-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; font-size: 11px; color: var(--text-faint);
+    font-family: 'JetBrains Mono', monospace; border-bottom: 1px dashed var(--border-soft);
+  }
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--gold);
+    display: inline-block; margin-right: 5px; animation: pulse 2.2s ease-in-out infinite;
+  }
+  .live-dot.err { background: var(--error); animation: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .table-scroll { overflow-x: auto; }
+  table.ohlcv { border-collapse: collapse; width: 100%; min-width: 560px; }
+  table.ohlcv th {
+    text-align: right; font-size: 10.5px; font-weight: 600; color: var(--text-muted);
+    padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid var(--border);
+  }
+  table.ohlcv th:first-child, table.ohlcv td:first-child { text-align: left; }
+  table.ohlcv td {
+    text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    padding: 7px 12px; white-space: nowrap; color: var(--text);
+  }
+  table.ohlcv tbody tr:nth-child(even) { background: var(--row-alt); }
+  table.ohlcv tbody tr.live-row { background: rgba(201,162,39,0.07); }
+  table.ohlcv tbody tr.live-row td:first-child { border-left: 2px solid var(--gold); padding-left: 10px; }
+  .high-cell { color: var(--up); }
+  .low-cell { color: var(--down); }
+  .live-tag {
+    font-family: 'Inter', sans-serif; font-size: 9.5px; color: var(--gold);
+    border: 1px solid var(--gold-dim); border-radius: 2px; padding: 0 4px; margin-left: 6px;
+  }
+
+  tfoot.range-row td {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px 12px;
+    color: var(--text-muted); border-top: 1px solid var(--border);
+  }
+
+  .empty-state, .error-state {
+    padding: 16px 14px; font-size: 12px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace;
+  }
+  .error-state { color: var(--error); }
+
+  footer {
+    max-width: 1180px; margin: 22px auto 0; padding: 0 20px;
+    font-size: 11.5px; color: var(--text-faint); line-height: 1.7;
+  }
+
+  @media (max-width: 560px) {
+    .header-inner { flex-direction: column; }
+    .header-controls { width: 100%; justify-content: space-between; }
+    .panel-head { flex-direction: column; align-items: flex-start; }
+  }
+  @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="title-block">
+      <h1>Live Ledger</h1>
+      <p>Full OHLCV per candle, four timeframes, refreshed on each one's own clock</p>
+    </div>
+    <div class="header-controls">
+      <div class="clock"><span>IST </span><span id="ist-clock">--:--:--</span></div>
+      <button id="refresh-all">Refresh now</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="add-bar">
+    <label for="add-symbol">Add coin</label>
+    <input type="text" id="add-symbol" placeholder="e.g. DOGE or DOGEUSDT" autocomplete="off" />
+    <select id="add-market">
+      <option value="spot">Spot</option>
+      <option value="futures">Futures</option>
+    </select>
+    <button id="add-btn">Add</button>
+    <span class="add-error" id="add-error"></span>
+    <span class="add-hint">Uses the symbol's Binance market data. If no quote asset is given, USDT is assumed.</span>
+  </div>
+
+  <div id="panels"></div>
+</main>
+
+<footer>
+  Each timeframe keeps its own clock in the background for every coin — the 3 min column refreshes every 3 minutes, 4 hour every 4 hours, whether or not it's the tab you're looking at — aligned to the exchange's real candle boundaries, plus a short buffer so the candle has actually closed. Switching tabs just shows what's already been fetched. Columns mirror the Python report: time (IST), high, low, close, volume, trade count. Coins you add are remembered on this device (browser local storage) and re-fetched on every visit. Data via the public Binance API, fetched directly in your browser — no server involved.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const DEFAULT_INSTRUMENTS = [
+    { key: "btc",  label: "Bitcoin",           symbol: "BTCUSDT",  market: "spot",    custom: false },
+    { key: "eth",  label: "Ethereum",          symbol: "ETHUSDT",  market: "spot",    custom: false },
+    { key: "sol",  label: "Solana",            symbol: "SOLUSDT",  market: "spot",    custom: false },
+    { key: "gold", label: "Gold (PAXG proxy)", symbol: "PAXGUSDT", market: "spot",    custom: false },
+    { key: "lit",  label: "Lighter",           symbol: "LITUSDT",  market: "futures", custom: false }
+  ];
+
+  const TIMEFRAMES = [
+    { key: "3m",  interval: "3m",  ms: 3  * 60 * 1000,       label: "3m"  },
+    { key: "15m", interval: "15m", ms: 15 * 60 * 1000,       label: "15m" },
+    { key: "1h",  interval: "1h",  ms: 60 * 60 * 1000,       label: "1h"  },
+    { key: "4h",  interval: "4h",  ms: 4  * 60 * 60 * 1000,  label: "4h"  }
+  ];
+
+  const SPOT_URL = "https://api.binance.com/api/v3/klines";
+  const FUTURES_URL = "https://fapi.binance.com/fapi/v1/klines";
+  const BOUNDARY_BUFFER_MS = 2500;
+  const CANDLES_SHOWN = 15;
+  const STORAGE_KEY = "hilo_ledger_custom_coins_v1";
+  const DEFAULT_TAB = "15m";
+
+  let instruments = [];          // live list, defaults + custom
+  const cache = {};              // "key_tf" -> array of candles
+  const activeTab = {};          // instKey -> tfKey
+  const nextUpdateAt = {};       // "key_tf" -> timestamp
+  const timers = {};             // "key_tf" -> { timeoutId, intervalId }
+
+  function ck(instKey, tfKey) { return instKey + "_" + tfKey; }
+
+  function fmtPrice(v) {
+    if (v >= 1000) return v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (v >= 1) return v.toFixed(4);
+    return v.toFixed(6);
+  }
+  function fmtVolume(v) {
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    if (v >= 1e3) return (v / 1e3).toFixed(2) + "K";
+    return v.toFixed(2);
+  }
+  function toISTParts(ms) {
+    const d = new Date(ms + 5.5 * 60 * 60 * 1000);
+    return {
+      day: String(d.getUTCDate()).padStart(2, "0"),
+      mon: d.toLocaleString("en-US", { month: "short", timeZone: "UTC" }),
+      hh: String(d.getUTCHours()).padStart(2, "0"),
+      mm: String(d.getUTCMinutes()).padStart(2, "0"),
+      ss: String(d.getUTCSeconds()).padStart(2, "0")
+    };
+  }
+  function fmtRowTime(ms) {
+    const p = toISTParts(ms);
+    return p.day + " " + p.mon + ", " + p.hh + ":" + p.mm;
+  }
+  function fmtClockNow() {
+    const p = toISTParts(Date.now());
+    return p.hh + ":" + p.mm + ":" + p.ss;
+  }
+  function fmtCountdown(msRemaining) {
+    if (msRemaining <= 0) return "updating…";
+    const totalSec = Math.floor(msRemaining / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return (m > 0 ? m + "m " : "") + s + "s";
+  }
+
+  // ---------------- storage ----------------
+  function loadCustomCoins() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
+  }
+  function saveCustomCoins() {
+    const custom = instruments.filter(i => i.custom).map(i => ({
+      key: i.key, label: i.label, symbol: i.symbol, market: i.market
+    }));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(custom)); } catch (e) {}
+  }
+
+  // ---------------- data ----------------
+  async function fetchCandles(symbol, market, interval, limit) {
+    const base = market === "futures" ? FUTURES_URL : SPOT_URL;
+    const url = base + "?symbol=" + symbol + "&interval=" + interval + "&limit=" + limit;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error("bad response");
+    return data;
+  }
+
+  async function updateData(inst, tf) {
+    const key = ck(inst.key, tf.key);
+    try {
+      const candles = await fetchCandles(inst.symbol, inst.market, tf.interval, CANDLES_SHOWN);
+      cache[key] = { candles: candles, ok: true, checkedAt: Date.now() };
+    } catch (err) {
+      cache[key] = { candles: (cache[key] && cache[key].candles) || [], ok: false, checkedAt: Date.now(), errMsg: err.message };
+    }
+    if (activeTab[inst.key] === tf.key) renderTable(inst);
+    renderMeta(inst, tf.key);
+  }
+
+  function scheduleData(inst, tf) {
+    const key = ck(inst.key, tf.key);
+    const run = () => {
+      updateData(inst, tf);
+      nextUpdateAt[key] = Date.now() + tf.ms;
+    };
+    updateData(inst, tf); // immediate first fetch
+    const now = Date.now();
+    const msToBoundary = tf.ms - (now % tf.ms) + BOUNDARY_BUFFER_MS;
+    nextUpdateAt[key] = now + msToBoundary;
+    const timeoutId = setTimeout(() => {
+      run();
+      const intervalId = setInterval(run, tf.ms);
+      timers[key].intervalId = intervalId;
+    }, msToBoundary);
+    timers[key] = { timeoutId: timeoutId, intervalId: null };
+  }
+
+  function unscheduleInstrument(instKey) {
+    TIMEFRAMES.forEach(tf => {
+      const key = ck(instKey, tf.key);
+      const t = timers[key];
+      if (t) {
+        if (t.timeoutId) clearTimeout(t.timeoutId);
+        if (t.intervalId) clearInterval(t.intervalId);
+      }
+      delete timers[key];
+      delete cache[key];
+      delete nextUpdateAt[key];
+    });
+  }
+
+  // ---------------- rendering ----------------
+  function panelId(instKey) { return "panel-" + instKey; }
+
+  function buildPanel(inst) {
+    const wrap = document.createElement("div");
+    wrap.className = "panel";
+    wrap.id = panelId(inst.key);
+
+    const head = document.createElement("div");
+    head.className = "panel-head";
+
+    const idBlock = document.createElement("div");
+    idBlock.className = "panel-id";
+    idBlock.innerHTML =
+      '<span class="name">' + inst.label + '</span>' +
+      '<span class="symbol">' + inst.symbol + '</span>' +
+      '<span class="market-tag">' + inst.market + '</span>';
+    head.appendChild(idBlock);
+
+    const tabs = document.createElement("div");
+    tabs.className = "tabs";
+    TIMEFRAMES.forEach(tf => {
+      const b = document.createElement("button");
+      b.className = "tab-btn" + (activeTab[inst.key] === tf.key ? " active" : "");
+      b.textContent = tf.label;
+      b.addEventListener("click", () => {
+        activeTab[inst.key] = tf.key;
+        Array.from(tabs.children).forEach(c => c.classList.remove("active"));
+        b.classList.add("active");
+        renderTable(inst);
+        renderMeta(inst, tf.key);
+      });
+      tabs.appendChild(b);
+    });
+    head.appendChild(tabs);
+
+    const actions = document.createElement("div");
+    actions.className = "panel-actions";
+    if (inst.custom) {
+      const rm = document.createElement("button");
+      rm.className = "remove-btn";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", () => removeInstrument(inst.key));
+      actions.appendChild(rm);
+    }
+    head.appendChild(actions);
+
+    wrap.appendChild(head);
+
+    const meta = document.createElement("div");
+    meta.className = "panel-meta";
+    meta.innerHTML =
+      '<span><span class="live-dot" id="dot-' + inst.key + '"></span><span id="countdown-' + inst.key + '">--</span></span>' +
+      '<span id="checked-' + inst.key + '">—</span>';
+    wrap.appendChild(meta);
+
+    const tableScroll = document.createElement("div");
+    tableScroll.className = "table-scroll";
+    tableScroll.id = "tablewrap-" + inst.key;
+    tableScroll.innerHTML = '<div class="empty-state">Loading…</div>';
+    wrap.appendChild(tableScroll);
+
+    return wrap;
+  }
+
+  function renderTable(inst) {
+    const tf = activeTab[inst.key];
+    const key = ck(inst.key, tf);
+    const entry = cache[key];
+    const container = document.getElementById("tablewrap-" + inst.key);
+    if (!container) return;
+
+    if (!entry || (!entry.ok && entry.candles.length === 0)) {
+      container.innerHTML = entry && !entry.ok
+        ? '<div class="error-state">Fetch failed: ' + escapeHtml(entry.errMsg || "unknown error") + ' — retrying automatically.</div>'
+        : '<div class="empty-state">Loading…</div>';
+      return;
+    }
+
+    const candles = entry.candles;
+    let periodHigh = -Infinity, periodLow = Infinity;
+
+    let rows = "";
+    candles.forEach((c, idx) => {
+      const openTime = c[0];
+      const high = parseFloat(c[2]);
+      const low = parseFloat(c[3]);
+      const close = parseFloat(c[4]);
+      const volume = parseFloat(c[5]);
+      const trades = c[8];
+      if (high > periodHigh) periodHigh = high;
+      if (low < periodLow) periodLow = low;
+      const isLive = idx === candles.length - 1;
+      rows += '<tr class="' + (isLive ? "live-row" : "") + '">' +
+        '<td>' + fmtRowTime(openTime) + (isLive ? '<span class="live-tag">live</span>' : '') + '</td>' +
+        '<td class="high-cell">' + fmtPrice(high) + '</td>' +
+        '<td class="low-cell">' + fmtPrice(low) + '</td>' +
+        '<td>' + fmtPrice(close) + '</td>' +
+        '<td>' + fmtVolume(volume) + '</td>' +
+        '<td>' + trades.toLocaleString("en-IN") + '</td>' +
+        '</tr>';
+    });
+
+    const rangeRow = candles.length
+      ? '<tfoot class="range-row"><tr><td>Range (' + candles.length + ' candles)</td>' +
+        '<td class="high-cell">' + fmtPrice(periodHigh) + '</td>' +
+        '<td class="low-cell">' + fmtPrice(periodLow) + '</td>' +
+        '<td colspan="3"></td></tr></tfoot>'
+      : "";
+
+    container.innerHTML =
+      '<table class="ohlcv"><thead><tr>' +
+      '<th>Time (IST)</th><th>High</th><th>Low</th><th>Close</th><th>Volume</th><th>Trades</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody>' + rangeRow + '</table>';
+  }
+
+  function renderMeta(inst, tfKeyJustUpdated) {
+    if (activeTab[inst.key] !== tfKeyJustUpdated) return;
+    const key = ck(inst.key, tfKeyJustUpdated);
+    const entry = cache[key];
+    const dot = document.getElementById("dot-" + inst.key);
+    const checked = document.getElementById("checked-" + inst.key);
+    if (!dot || !checked) return;
+    if (entry && entry.ok) {
+      dot.classList.remove("err");
+      checked.textContent = "checked " + fmtClockNowFor(entry.checkedAt);
+    } else {
+      dot.classList.add("err");
+      checked.textContent = "retry pending";
+    }
+  }
+
+  function fmtClockNowFor(ms) {
+    const p = toISTParts(ms);
+    return p.hh + ":" + p.mm + ":" + p.ss;
+  }
+
+  function tickCountdowns() {
+    instruments.forEach(inst => {
+      const tf = activeTab[inst.key];
+      const key = ck(inst.key, tf);
+      const el = document.getElementById("countdown-" + inst.key);
+      if (!el) return;
+      const next = nextUpdateAt[key];
+      el.textContent = next ? fmtCountdown(next - Date.now()) : "--";
+    });
+  }
+
+  function tickClock() {
+    document.getElementById("ist-clock").textContent = fmtClockNow();
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---------------- instrument lifecycle ----------------
+  function addInstrumentToUI(inst) {
+    activeTab[inst.key] = DEFAULT_TAB;
+    document.getElementById("panels").appendChild(buildPanel(inst));
+    TIMEFRAMES.forEach(tf => scheduleData(inst, tf));
+  }
+
+  function removeInstrument(instKey) {
+    instruments = instruments.filter(i => i.key !== instKey);
+    unscheduleInstrument(instKey);
+    delete activeTab[instKey];
+    const node = document.getElementById(panelId(instKey));
+    if (node) node.remove();
+    saveCustomCoins();
+  }
+
+  function normalizeSymbolInput(raw) {
+    let s = raw.trim().toUpperCase().replace(/\s+/g, "");
+    const quoteAssets = ["USDT", "BUSD", "USDC", "FDUSD", "TUSD", "BTC", "ETH", "BNB"];
+    const hasQuote = quoteAssets.some(q => s.endsWith(q));
+    if (!hasQuote) s += "USDT";
+    return s;
+  }
+
+  async function handleAddCoin() {
+    const input = document.getElementById("add-symbol");
+    const marketSel = document.getElementById("add-market");
+    const errEl = document.getElementById("add-error");
+    errEl.textContent = "";
+
+    const raw = input.value;
+    if (!raw || !raw.trim()) { errEl.textContent = "Enter a symbol first."; return; }
+
+    const symbol = normalizeSymbolInput(raw);
+    const market = marketSel.value;
+    const key = symbol.toLowerCase() + "_" + market;
+
+    if (instruments.some(i => i.key === key)) {
+      errEl.textContent = symbol + " (" + market + ") is already on the ledger.";
+      return;
+    }
+
+    const addBtn = document.getElementById("add-btn");
+    addBtn.disabled = true;
+    addBtn.textContent = "Checking…";
+    try {
+      await fetchCandles(symbol, market, "1h", 1); // validate the symbol exists on this market
+      const inst = { key: key, label: symbol, symbol: symbol, market: market, custom: true };
+      instruments.push(inst);
+      addInstrumentToUI(inst);
+      saveCustomCoins();
+      input.value = "";
+    } catch (err) {
+      errEl.textContent = "Couldn't find " + symbol + " on Binance " + market + ".";
+    } finally {
+      addBtn.disabled = false;
+      addBtn.textContent = "Add";
+    }
+  }
+
+  function refreshAllNow() {
+    instruments.forEach(inst => {
+      TIMEFRAMES.forEach(tf => updateData(inst, tf));
+    });
+  }
+
+  // ---------------- boot ----------------
+  function boot() {
+    const custom = loadCustomCoins().map(c => Object.assign({}, c, { custom: true }));
+    instruments = DEFAULT_INSTRUMENTS.concat(custom);
+
+    instruments.forEach(inst => addInstrumentToUI(inst));
+
+    tickClock();
+    setInterval(tickClock, 1000);
+    setInterval(tickCountdowns, 1000);
+
+    document.getElementById("refresh-all").addEventListener("click", refreshAllNow);
+    document.getElementById("add-btn").addEventListener("click", handleAddCoin);
+    document.getElementById("add-symbol").addEventListener("keydown", e => {
+      if (e.key === "Enter") handleAddCoin();
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+})();
+</script>
+
+</body>
+</html>
