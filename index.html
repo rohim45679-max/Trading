@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>High/Low Ledger — Live Multi-Timeframe Extremes</title>
+<meta name="description" content="Live 3m/15m/1h/4h high-low ledger for BTC, ETH, SOL, Gold and Lighter, sourced from Binance." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0E13;
+    --panel: #10161D;
+    --panel-alt: #0D1219;
+    --border: #212A34;
+    --border-soft: #1A222B;
+    --text: #E7ECF2;
+    --text-muted: #7D8A9A;
+    --text-faint: #4C5865;
+    --gold: #C9A227;
+    --gold-dim: #8A7018;
+    --up: #3ECF8E;
+    --down: #F0605A;
+    --error: #F0605A;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    min-height: 100vh;
+    padding-bottom: 48px;
+  }
+
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(10, 14, 19, 0.94);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+  }
+
+  .header-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .title-block h1 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .title-block p {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  .clock {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .clock span { color: var(--text-muted); font-size: 11px; }
+
+  button.refresh-all {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 12px;
+    font-size: 12.5px;
+    font-family: 'Inter', sans-serif;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  button.refresh-all:hover {
+    border-color: var(--gold-dim);
+    color: var(--gold);
+  }
+  button.refresh-all:active { transform: translateY(1px); }
+
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--panel);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 760px;
+  }
+
+  thead th {
+    text-align: left;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  thead th:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--panel);
+    z-index: 5;
+  }
+
+  tbody tr:not(:last-child) td {
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  td.instrument-cell {
+    padding: 14px;
+    position: sticky;
+    left: 0;
+    background: var(--panel-alt);
+    border-right: 1px solid var(--border);
+    z-index: 4;
+    min-width: 148px;
+  }
+
+  .instrument-name {
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+
+  .instrument-symbol {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  td.tf-cell {
+    padding: 12px 14px;
+    vertical-align: top;
+    min-width: 172px;
+  }
+
+  .row-hl {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .row-hl .lbl {
+    color: var(--text-muted);
+    font-size: 11.5px;
+    min-width: 34px;
+  }
+
+  .row-hl .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 12.5px;
+  }
+
+  .row-hl.high .val { color: var(--up); }
+  .row-hl.low .val { color: var(--down); }
+
+  .row-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    margin-left: 4px;
+  }
+
+  .cell-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-soft);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--gold);
+    display: inline-block;
+    margin-right: 5px;
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  .live-dot.err { background: var(--error); animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  .cell-error {
+    font-size: 11px;
+    color: var(--error);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .placeholder .val { color: var(--text-faint) !important; }
+
+  footer {
+    max-width: 1180px;
+    margin: 26px auto 0;
+    padding: 0 20px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  footer a { color: var(--text-muted); }
+
+  @media (max-width: 520px) {
+    .header-inner { flex-direction: column; }
+    .header-controls { width: 100%; justify-content: space-between; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="title-block">
+      <h1>High/Low Ledger</h1>
+      <p>Live period extremes across four timeframes — data from Binance</p>
+    </div>
+    <div class="header-controls">
+      <div class="clock"><span>IST </span><span id="ist-clock">--:--:--</span></div>
+      <button class="refresh-all" id="refresh-all">Refresh now</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="table-wrap">
+    <table id="ledger">
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th>3 min</th>
+          <th>15 min</th>
+          <th>1 hour</th>
+          <th>4 hour</th>
+        </tr>
+      </thead>
+      <tbody id="ledger-body"></tbody>
+    </table>
+  </div>
+</main>
+
+<footer>
+  Each column refreshes on its own clock: the 3 min column updates every 3 minutes, 15 min every 15 minutes, and so on — aligned to the exchange's candle boundaries, not to page-load time. High/Low reflect the current, still-forming candle for that timeframe. Data via the public Binance API, fetched directly in your browser.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const INSTRUMENTS = [
+    { key: "btc",  label: "Bitcoin",           symbol: "BTCUSDT",  market: "spot"    },
+    { key: "eth",  label: "Ethereum",          symbol: "ETHUSDT",  market: "spot"    },
+    { key: "sol",  label: "Solana",            symbol: "SOLUSDT",  market: "spot"    },
+    { key: "gold", label: "Gold (PAXG proxy)", symbol: "PAXGUSDT", market: "spot"    },
+    { key: "lit",  label: "Lighter",           symbol: "LITUSDT",  market: "futures" }
+  ];
+
+  const TIMEFRAMES = [
+    { key: "3m",  interval: "3m",  ms: 3  * 60 * 1000, label: "3 min"  },
+    { key: "15m", interval: "15m", ms: 15 * 60 * 1000, label: "15 min" },
+    { key: "1h",  interval: "1h",  ms: 60 * 60 * 1000, label: "1 hour" },
+    { key: "4h",  interval: "4h",  ms: 4  * 60 * 60 * 1000, label: "4 hour" }
+  ];
+
+  const SPOT_URL = "https://api.binance.com/api/v3/klines";
+  const FUTURES_URL = "https://fapi.binance.com/fapi/v1/klines";
+  const BOUNDARY_BUFFER_MS = 2500; // wait a moment after the candle closes before fetching
+
+  const nextUpdateAt = {};   // "btc_3m" -> timestamp ms
+  const lastStatus = {};     // "btc_3m" -> "ok" | "error"
+
+  function cellKey(instKey, tfKey) { return instKey + "_" + tfKey; }
+
+  function fmtPrice(v) {
+    if (v >= 1000) return v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (v >= 1) return v.toFixed(4);
+    return v.toFixed(6);
+  }
+
+  function toIST(ms) {
+    const d = new Date(ms + (5.5 * 60 * 60 * 1000));
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return hh + ":" + mm;
+  }
+
+  function fmtCountdown(msRemaining) {
+    if (msRemaining <= 0) return "updating…";
+    const totalSec = Math.floor(msRemaining / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return (m > 0 ? m + "m " : "") + s + "s";
+  }
+
+  function buildTable() {
+    const body = document.getElementById("ledger-body");
+    INSTRUMENTS.forEach(inst => {
+      const tr = document.createElement("tr");
+
+      const nameTd = document.createElement("td");
+      nameTd.className = "instrument-cell";
+      nameTd.innerHTML =
+        '<div class="instrument-name">' + inst.label + '</div>' +
+        '<div class="instrument-symbol">' + inst.symbol + (inst.market === "futures" ? " · perp" : "") + '</div>';
+      tr.appendChild(nameTd);
+
+      TIMEFRAMES.forEach(tf => {
+        const td = document.createElement("td");
+        td.className = "tf-cell placeholder";
+        td.dataset.cell = cellKey(inst.key, tf.key);
+        td.innerHTML =
+          '<div class="row-hl high"><span class="lbl">High</span><span class="val">—</span></div>' +
+          '<div class="row-hl low"><span class="lbl">Low</span><span class="val">—</span></div>' +
+          '<div class="cell-meta">' +
+            '<span><span class="live-dot"></span><span class="countdown">--</span></span>' +
+            '<span class="last-check">—</span>' +
+          '</div>';
+        tr.appendChild(td);
+      });
+
+      body.appendChild(tr);
+    });
+  }
+
+  async function fetchLatestCandle(symbol, market, interval) {
+    const base = market === "futures" ? FUTURES_URL : SPOT_URL;
+    const url = base + "?symbol=" + symbol + "&interval=" + interval + "&limit=1";
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) throw new Error("no data");
+    return data[0];
+  }
+
+  function renderCell(instKey, tfKey, candle) {
+    const td = document.querySelector('[data-cell="' + cellKey(instKey, tfKey) + '"]');
+    if (!td) return;
+    td.classList.remove("placeholder");
+
+    const openTimeMs = candle[0];
+    const high = parseFloat(candle[2]);
+    const low = parseFloat(candle[3]);
+
+    td.querySelector(".row-hl.high .val").textContent = fmtPrice(high);
+    td.querySelector(".row-hl.low .val").textContent = fmtPrice(low);
+
+    let timeRow = td.querySelector(".row-time");
+    const timeLabel = "since " + toIST(openTimeMs) + " IST";
+    if (!timeRow) {
+      timeRow = document.createElement("div");
+      timeRow.className = "row-time";
+      td.insertBefore(timeRow, td.querySelector(".cell-meta"));
+    }
+    timeRow.textContent = timeLabel;
+
+    td.querySelector(".live-dot").classList.remove("err");
+    const lastCheck = td.querySelector(".last-check");
+    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const hh = String(now.getUTCHours()).padStart(2, "0");
+    const mm = String(now.getUTCMinutes()).padStart(2, "0");
+    const ss = String(now.getUTCSeconds()).padStart(2, "0");
+    lastCheck.textContent = "checked " + hh + ":" + mm + ":" + ss;
+
+    lastStatus[cellKey(instKey, tfKey)] = "ok";
+  }
+
+  function renderError(instKey, tfKey, message) {
+    const td = document.querySelector('[data-cell="' + cellKey(instKey, tfKey) + '"]');
+    if (!td) return;
+    td.querySelector(".live-dot").classList.add("err");
+    const lastCheck = td.querySelector(".last-check");
+    lastCheck.textContent = "retry pending";
+    lastStatus[cellKey(instKey, tfKey)] = "error";
+  }
+
+  async function updateCell(inst, tf) {
+    try {
+      const candle = await fetchLatestCandle(inst.symbol, inst.market, tf.interval);
+      renderCell(inst.key, tf.key, candle);
+    } catch (err) {
+      renderError(inst.key, tf.key, err.message);
+    }
+  }
+
+  function scheduleCell(inst, tf) {
+    const key = cellKey(inst.key, tf.key);
+
+    const run = () => {
+      updateCell(inst, tf);
+      nextUpdateAt[key] = Date.now() + tf.ms;
+    };
+
+    // First fetch immediately so the page isn't blank on load.
+    updateCell(inst, tf);
+
+    // Then align subsequent updates to the timeframe's real boundary
+    // (e.g. the 15 min column refreshes at :00/:15/:30/:45, not 15 min after page-load).
+    const now = Date.now();
+    const msToBoundary = tf.ms - (now % tf.ms) + BOUNDARY_BUFFER_MS;
+    nextUpdateAt[key] = now + msToBoundary;
+
+    setTimeout(() => {
+      run();
+      setInterval(run, tf.ms);
+    }, msToBoundary);
+  }
+
+  function tickCountdowns() {
+    Object.keys(nextUpdateAt).forEach(key => {
+      const td = document.querySelector('[data-cell="' + key + '"]');
+      if (!td) return;
+      const el = td.querySelector(".countdown");
+      if (!el) return;
+      el.textContent = fmtCountdown(nextUpdateAt[key] - Date.now());
+    });
+  }
+
+  function tickClock() {
+    const el = document.getElementById("ist-clock");
+    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const hh = String(now.getUTCHours()).padStart(2, "0");
+    const mm = String(now.getUTCMinutes()).padStart(2, "0");
+    const ss = String(now.getUTCSeconds()).padStart(2, "0");
+    el.textContent = hh + ":" + mm + ":" + ss;
+  }
+
+  function refreshAllNow() {
+    INSTRUMENTS.forEach(inst => {
+      TIMEFRAMES.forEach(tf => updateCell(inst, tf));
+    });
+  }
+
+  function boot() {
+    buildTable();
+    INSTRUMENTS.forEach(inst => {
+      TIMEFRAMES.forEach(tf => scheduleCell(inst, tf));
+    });
+    tickClock();
+    setInterval(tickClock, 1000);
+    setInterval(tickCountdowns, 1000);
+    document.getElementById("refresh-all").addEventListener("click", refreshAllNow);
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+})();
+</script>
+
+</body>
+</html>
